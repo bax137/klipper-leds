@@ -12,3 +12,5 @@ pip3 install websocket-client
 ## 2. script installation
 
 ## 3. service
+
+## 4. configuration

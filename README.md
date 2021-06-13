@@ -14,3 +14,5 @@ pip3 install websocket-client
 ## 3. service
 
 ## 4. configuration
+
+## 5. wled installation on the microcontroller

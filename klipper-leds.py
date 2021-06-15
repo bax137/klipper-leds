@@ -50,9 +50,9 @@ COLD_COLOR=BLUE
 ### color for hot temperature
 HOT_COLOR=RED
 ### color of the background of temperature indicator when heating is in progress
-TOO_HOT_COLOR=COLD_COLOR
+TOO_HOT_COLOR=ORANGE
 ### color of the background of temperature indicator when cooling is in progress
-TOO_COLD_COLOR=HOT_COLOR
+TOO_COLD_COLOR=ORANGE
 ### color when filament is loaded
 FILAMENT_SENSOR_OK=GREEN
 ### colors when filament is not loaded
@@ -140,6 +140,8 @@ def on_message(ws, message):
                     currentParams.extruder_temp=params['extruder']['temperature']
             if 'filament_switch_sensor runout_sensor' in params:
                 currentParams.filament_detected=params['filament_switch_sensor runout_sensor']['filament_detected']
+            if 'print_stats' in params:
+                currentParams.printer_state=params['print_stats']['state']
             updateLedsOther.leds_status = PRINT_OFF
             
     if currentParams.filament_detected != None:
@@ -174,8 +176,10 @@ def on_message(ws, message):
         else:
             updateLedsExtruder.leds_status = HOT
             updateLedsExtruder.progress = 100
-    
-    if False:
+
+    if currentParams.printer_state == 'standby' or currentParams.printer_state == None:
+        updateLedsOther.leds_status = PRINT_OFF
+    else:
         updateLedsOther.leds_status = PRINT_ON
 
 def on_error(ws, error):
@@ -202,7 +206,8 @@ def on_open(ws):
                     "objects": {
                         "heater_bed": ["target", "temperature"],
                         "extruder": ["target", "temperature"],
-                        "filament_switch_sensor runout_sensor": ["filament_detected"]
+                        "filament_switch_sensor runout_sensor": ["filament_detected"],
+                        "print_stats": ["state"]
                     }
                 },
                 "id": 5434
@@ -219,6 +224,7 @@ class CurrentParams():
         self.extruder_temp = None
         self.extruder_target = None
         self.filament_detected = None
+        self.printer_state = None
 
 class UpdateLedsFilament(threading.Thread):
     def __init__(self):
@@ -404,4 +410,4 @@ if __name__ == "__main__":
                               on_error=on_error,
                               on_close=on_close)
     while True:
-        ws.run_forever() 
+        ws.run_forever()

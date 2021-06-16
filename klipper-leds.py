@@ -45,6 +45,10 @@ BACK_COLOR_OFF=BLUE_DARK
 BACK_COLOR_PRINT_OFF=PINK
 ### color when the printer is ON and a print is in progress
 BACK_COLOR_PRINT_ON=WHITE
+### color when the printer is ON and the print is complete
+BACK_COLOR_PRINT_COMPLETE1=GREEN
+BACK_COLOR_PRINT_COMPLETE2=WHITE
+COMPLETE_BLINK = 1
 ### color for cold temperature
 COLD_COLOR=BLUE
 ### color for hot temperature
@@ -71,7 +75,7 @@ HEATER_BED_TEMP_COLD=45
 ### defitinion of cold temperature for extruder
 EXTRUDER_TEMP_COLD=50
 ### percentage of temperature target for considering that temperature target is reached
-PERCENT_TARGET_TEMP=0.97
+PERCENT_TARGET_TEMP=0.95
 
 ### EXPERT SETTINGS
 ### timeout for WLED udp communication (in seconds)
@@ -93,6 +97,7 @@ TOO_COLD = 3
 PRINTER_OFF = 0
 PRINT_ON = 1
 PRINT_OFF = 2
+PRINT_COMPLETE = 3
 
 STATUS_NONE = -1
 STATUS_INIT = -2
@@ -121,7 +126,7 @@ def on_message(ws, message):
             currentParams.extruder_target = status['extruder']['target']
             currentParams.extruder_temp = status['extruder']['temperature']
             currentParams.filament_detected = status['filament_switch_sensor runout_sensor']['filament_detected']
-            updateLedsOther.leds_status = PRINT_OFF
+            currentParams.printer_state = status['print_stats']['state']
     elif 'method' in json_message:
         method=json_message['method']
         if method == 'notify_proc_stat_update':
@@ -141,8 +146,8 @@ def on_message(ws, message):
             if 'filament_switch_sensor runout_sensor' in params:
                 currentParams.filament_detected=params['filament_switch_sensor runout_sensor']['filament_detected']
             if 'print_stats' in params:
-                currentParams.printer_state=params['print_stats']['state']
-            updateLedsOther.leds_status = PRINT_OFF
+                if 'state' in params['print_stats']:
+                    currentParams.printer_state=params['print_stats']['state']
             
     if currentParams.filament_detected != None:
         updateLedsFilament.leds_status = currentParams.filament_detected
@@ -158,6 +163,9 @@ def on_message(ws, message):
         if currentParams.heater_bed_temp < currentParams.heater_bed_target * PERCENT_TARGET_TEMP:
             updateLedsHeaterBed.leds_status = TOO_HOT
             updateLedsHeaterBed.progress = currentParams.heater_bed_temp / currentParams.heater_bed_target
+        elif currentParams.heater_bed_temp > currentParams.heater_bed_target * (1+PERCENT_TARGET_TEMP):
+            updateLedsHeaterBed.leds_status = TOO_HOT
+            updateLedsHeaterBed.progress = currentParams.heater_bed_target / currentParams.heater_bed_temp
         else:
             updateLedsHeaterBed.leds_status = HOT
             updateLedsHeaterBed.progress = 100
@@ -173,12 +181,17 @@ def on_message(ws, message):
         if currentParams.extruder_temp < currentParams.extruder_target * PERCENT_TARGET_TEMP:
             updateLedsExtruder.leds_status = TOO_HOT
             updateLedsExtruder.progress = currentParams.extruder_temp / currentParams.extruder_target
+        elif currentParams.extruder_temp > currentParams.extruder_target * (1+PERCENT_TARGET_TEMP):
+            updateLedsExtruder.leds_status = TOO_HOT
+            updateLedsExtruder.progress = currentParams.extruder_target / currentParams.extruder_temp
         else:
             updateLedsExtruder.leds_status = HOT
             updateLedsExtruder.progress = 100
 
     if currentParams.printer_state == 'standby' or currentParams.printer_state == None:
         updateLedsOther.leds_status = PRINT_OFF
+    elif currentParams.printer_state == 'complete':
+        updateLedsOther.leds_status = PRINT_COMPLETE
     else:
         updateLedsOther.leds_status = PRINT_ON
 
@@ -367,20 +380,30 @@ class UpdateLedsOther(threading.Thread):
         printer_color = BACK_COLOR_OFF
         clientSock = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
         current_status = STATUS_INIT
-        now = dt.datetime.now()
+        now_golbal = dt.datetime.now()
+        now_blink = dt.datetime.now()
+        printer_color = None
 
         while True:
             now2 = dt.datetime.now()
-            if self.leds_status != current_status or (now2-now).total_seconds() > WLED_UDP_WAIT*0.9:
+            if self.leds_status != current_status or self.leds_status == PRINT_COMPLETE or (now2-now_golbal).total_seconds() > WLED_UDP_WAIT*0.9:
+                now_golbal = dt.datetime.now()
                 current_status = self.leds_status            
                 if self.leds_status == STATUS_NONE:
                     printer_color = BACK_COLOR_OFF
-                if self.leds_status == PRINTER_OFF:
+                elif self.leds_status == PRINTER_OFF:
                     printer_color = BACK_COLOR_OFF
                 elif self.leds_status == PRINT_OFF:
                     printer_color = BACK_COLOR_PRINT_OFF
                 elif self.leds_status == PRINT_ON:
                     printer_color = BACK_COLOR_PRINT_ON
+                elif self.leds_status == PRINT_COMPLETE:
+                    if (now2-now_blink).total_seconds() > COMPLETE_BLINK:
+                        if printer_color != BACK_COLOR_PRINT_COMPLETE1:
+                            printer_color = BACK_COLOR_PRINT_COMPLETE1
+                        else:
+                            printer_color = BACK_COLOR_PRINT_COMPLETE2
+                        now_blink = dt.datetime.now()
 
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
                 for i in range(NB_LEDS):
@@ -410,4 +433,4 @@ if __name__ == "__main__":
                               on_error=on_error,
                               on_close=on_close)
     while True:
-        ws.run_forever()
+        ws.run_forever() 

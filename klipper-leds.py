@@ -47,16 +47,16 @@ BACK_COLOR_PRINT_OFF=PINK
 BACK_COLOR_PRINT_ON=WHITE
 ### color when the printer is ON and the print is complete
 BACK_COLOR_PRINT_COMPLETE1=GREEN
-BACK_COLOR_PRINT_COMPLETE2=WHITE
+BACK_COLOR_PRINT_COMPLETE2=BACK_COLOR_PRINT_OFF
 COMPLETE_BLINK = 1
 ### color for cold temperature
 COLD_COLOR=BLUE
 ### color for hot temperature
 HOT_COLOR=RED
 ### color of the background of temperature indicator when heating is in progress
-TOO_HOT_COLOR=ORANGE
+TO_HOT_COLOR=ORANGE
 ### color of the background of temperature indicator when cooling is in progress
-TOO_COLD_COLOR=ORANGE
+TO_COLD_COLOR=ORANGE
 ### color when filament is loaded
 FILAMENT_SENSOR_OK=GREEN
 ### colors when filament is not loaded
@@ -80,7 +80,8 @@ PERCENT_TARGET_TEMP=0.95
 ### EXPERT SETTINGS
 ### timeout for WLED udp communication (in seconds)
 ### after this time limit, wled stops the synchronization until a new udp data in received
-WLED_UDP_WAIT=2
+WLED_UDP_WAIT=5
+WLED_UDP_WAIT_PERCENT=0.8
 ### wait time for the each step of the update leds threads
 TIME_SLEEP=0.005
 
@@ -91,8 +92,8 @@ WLED_UDP_MODE_WARLS = 1
 
 COLD = 0
 HOT = 1
-TOO_HOT = 2
-TOO_COLD = 3
+TO_HOT = 2
+TO_COLD = 3
 
 PRINTER_OFF = 0
 PRINT_ON = 1
@@ -157,14 +158,14 @@ def on_message(ws, message):
             updateLedsHeaterBed.leds_status = COLD
             updateLedsHeaterBed.progress = 100
         else:
-            updateLedsHeaterBed.leds_status = TOO_COLD
+            updateLedsHeaterBed.leds_status = TO_COLD
             updateLedsHeaterBed.progress = HEATER_BED_TEMP_COLD / currentParams.heater_bed_temp
     else:
         if currentParams.heater_bed_temp < currentParams.heater_bed_target * PERCENT_TARGET_TEMP:
-            updateLedsHeaterBed.leds_status = TOO_HOT
+            updateLedsHeaterBed.leds_status = TO_HOT
             updateLedsHeaterBed.progress = currentParams.heater_bed_temp / currentParams.heater_bed_target
         elif currentParams.heater_bed_temp > currentParams.heater_bed_target * (1+PERCENT_TARGET_TEMP):
-            updateLedsHeaterBed.leds_status = TOO_HOT
+            updateLedsHeaterBed.leds_status = TO_HOT
             updateLedsHeaterBed.progress = currentParams.heater_bed_target / currentParams.heater_bed_temp
         else:
             updateLedsHeaterBed.leds_status = HOT
@@ -175,14 +176,14 @@ def on_message(ws, message):
             updateLedsExtruder.leds_status = COLD
             updateLedsExtruder.progress = 100
         else:
-            updateLedsExtruder.leds_status = TOO_COLD
+            updateLedsExtruder.leds_status = TO_COLD
             updateLedsExtruder.progress = EXTRUDER_TEMP_COLD / currentParams.extruder_temp
     else:
         if currentParams.extruder_temp < currentParams.extruder_target * PERCENT_TARGET_TEMP:
-            updateLedsExtruder.leds_status = TOO_HOT
+            updateLedsExtruder.leds_status = TO_HOT
             updateLedsExtruder.progress = currentParams.extruder_temp / currentParams.extruder_target
         elif currentParams.extruder_temp > currentParams.extruder_target * (1+PERCENT_TARGET_TEMP):
-            updateLedsExtruder.leds_status = TOO_HOT
+            updateLedsExtruder.leds_status = TO_HOT
             updateLedsExtruder.progress = currentParams.extruder_target / currentParams.extruder_temp
         else:
             updateLedsExtruder.leds_status = HOT
@@ -249,56 +250,60 @@ class UpdateLedsFilament(threading.Thread):
     def run(self):
         current_pos = FILAMENT_SENSOR_BEGIN
         direction = 1
+        current_status = STATUS_INIT
 
         clientSock = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
-        now_filament = dt.datetime.now()
+        now_animation = dt.datetime.now()
+        now_global = dt.datetime.now()
         current_status = STATUS_INIT
 
         while True:
-            if self.leds_status == STATUS_NONE:
-                filament_sensor_color = BACK_COLOR_OFF
-
-            if self.leds_status == True:
-                filament_sensor_color = FILAMENT_SENSOR_OK
-            else:
-                now_filament2 = dt.datetime.now()
-                if (now_filament2-now_filament).total_seconds() > FILAMENT_ANIMATION_SPEED:
-                    current_pos = current_pos + direction
-                    if current_pos == FILAMENT_SENSOR_END:
-                        direction = -1
-                    if current_pos == FILAMENT_SENSOR_BEGIN:
-                        direction = 1
-                    now_filament = dt.datetime.now()
-            v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
-            for i in range(FILAMENT_SENSOR_BEGIN,FILAMENT_SENSOR_END+1):
-                v.extend([i])
-                if self.leds_status == True or self.leds_status == STATUS_NONE:
-                    color = filament_sensor_color
-                elif i == current_pos:
-                    color = FILAMENT_SENSOR_KO1
-                else:
-                    color = FILAMENT_SENSOR_KO2
-                v.extend(color)
-
-                '''
-                now_filament2 = dt.datetime.now()
-                if (now_filament2-now_filament).total_seconds() > FILAMENT_BLINK:
-                    if filament_sensor_color == FILAMENT_SENSOR_KO1:
-                        filament_sensor_color = FILAMENT_SENSOR_KO2
-                    else:
-                        filament_sensor_color = FILAMENT_SENSOR_KO1
-                    now_filament = dt.datetime.now()
-
-            v = [WLED_UDP_MODE,WLED_UDP_WAIT]
-            for i in range(FILAMENT_SENSOR_BEGIN,FILAMENT_SENSOR_END+1):
-                v.extend([i])
-                v.extend(filament_sensor_color)
-'''
-            if self.leds_status != True or (self.leds_status == True and current_status != self.leds_status):
+            now2 = dt.datetime.now()
+            if self.leds_status != current_status or self.leds_status == False or (now2-now_global).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
                 current_status = self.leds_status
-                Message = bytearray(v)
-                clientSock.sendto (Message, (WLED_IP, WLED_PORT))
-                time.sleep(TIME_SLEEP)
+                if self.leds_status == STATUS_NONE:
+                    filament_sensor_color = BACK_COLOR_OFF
+
+                if self.leds_status == True:
+                    filament_sensor_color = FILAMENT_SENSOR_OK
+                else:
+                    if (now2-now_animation).total_seconds() > FILAMENT_ANIMATION_SPEED:
+                        current_pos = current_pos + direction
+                        if current_pos == FILAMENT_SENSOR_END:
+                            direction = -1
+                        if current_pos == FILAMENT_SENSOR_BEGIN:
+                            direction = 1
+                        now_animation = dt.datetime.now()
+                v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
+                for i in range(FILAMENT_SENSOR_BEGIN,FILAMENT_SENSOR_END+1):
+                    v.extend([i])
+                    if self.leds_status == True or self.leds_status == STATUS_NONE:
+                        color = filament_sensor_color
+                    elif i == current_pos:
+                        color = FILAMENT_SENSOR_KO1
+                    else:
+                        color = FILAMENT_SENSOR_KO2
+                    v.extend(color)
+
+                    '''
+                    now_filament2 = dt.datetime.now()
+                    if (now_filament2-now_filament).total_seconds() > FILAMENT_BLINK:
+                        if filament_sensor_color == FILAMENT_SENSOR_KO1:
+                            filament_sensor_color = FILAMENT_SENSOR_KO2
+                        else:
+                            filament_sensor_color = FILAMENT_SENSOR_KO1
+                        now_filament = dt.datetime.now()
+
+                v = [WLED_UDP_MODE,WLED_UDP_WAIT]
+                for i in range(FILAMENT_SENSOR_BEGIN,FILAMENT_SENSOR_END+1):
+                    v.extend([i])
+                    v.extend(filament_sensor_color)
+    '''
+                    current_status = self.leds_status
+                    Message = bytearray(v)
+                    clientSock.sendto (Message, (WLED_IP, WLED_PORT))
+                    now_global = dt.datetime.now()
+                    time.sleep(TIME_SLEEP)
 
 class UpdateLedsTemperature(threading.Thread):
     def __init__(self,begin,end,direction):
@@ -315,11 +320,13 @@ class UpdateLedsTemperature(threading.Thread):
     def run(self):
         clientSock = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
         current_status = STATUS_INIT
-        now = dt.datetime.now()
+        now_golbal = dt.datetime.now()
+        now_animation = dt.datetime.now()
         direction = 1
 
         while True:
-            if (self.leds_status == TOO_HOT or self.leds_status == TOO_COLD) or self.leds_status != current_status:
+            now2 = dt.datetime.now()
+            if (self.leds_status == TO_HOT or self.leds_status == TO_COLD) or self.leds_status != current_status or (now2-now_golbal).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
                 current_status = self.leds_status
                 if self.leds_status == STATUS_NONE:
                     color = BACK_COLOR_OFF
@@ -329,22 +336,22 @@ class UpdateLedsTemperature(threading.Thread):
                 elif self.leds_status == HOT:
                     color = HOT_COLOR
                 '''
-                elif self.leds_status == TOO_HOT:
-                    color = TOO_HOT_COLOR
-                elif self.leds_status == TOO_COLD:
-                    color = TOO_COLD_COLOR
+                elif self.leds_status == TO_HOT:
+                    color = TO_HOT_COLOR
+                elif self.leds_status == TO_COLD:
+                    color = TO_COLD_COLOR
                 '''
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
 
                 for i in range(self.begin,self.end+1):
                     led_index = i
-                    if self.leds_status == TOO_HOT or self.leds_status == TOO_COLD:
+                    if self.leds_status == TO_HOT or self.leds_status == TO_COLD:
                         current_status = STATUS_INIT
                         if self.direction == TO_LEFT:
                             led_index = self.end - i + self.begin
                         now2 = dt.datetime.now()
-                        if (now2-now).total_seconds() > TEMPERATURE_ANIMATION_SPEED:
-                            now = dt.datetime.now()
+                        if (now2-now_animation).total_seconds() > TEMPERATURE_ANIMATION_SPEED:
+                            now_animation = dt.datetime.now()
                             self.end_pos += direction
                             if self.end_pos < self.begin:
                                 direction = 1
@@ -353,20 +360,21 @@ class UpdateLedsTemperature(threading.Thread):
                                 direction = -1
 
                         if i < self.end_pos:
-                            if self.leds_status == TOO_HOT:
+                            if self.leds_status == TO_HOT:
                                 color = HOT_COLOR
-                            if self.leds_status == TOO_COLD:
+                            if self.leds_status == TO_COLD:
                                 color = COLD_COLOR
                         else:
-                            if self.leds_status == TOO_HOT:
-                                color = TOO_HOT_COLOR
-                            if self.leds_status == TOO_COLD:
-                                color = TOO_COLD_COLOR
+                            if self.leds_status == TO_HOT:
+                                color = TO_HOT_COLOR
+                            if self.leds_status == TO_COLD:
+                                color = TO_COLD_COLOR
                     v.extend([led_index])
                     v.extend(color)
 
                 Message = bytearray(v)
                 clientSock.sendto (Message, (WLED_IP, WLED_PORT))
+                now_golbal = dt.datetime.now()
                 time.sleep(TIME_SLEEP)
 
 class UpdateLedsOther(threading.Thread):
@@ -383,11 +391,11 @@ class UpdateLedsOther(threading.Thread):
         now_golbal = dt.datetime.now()
         now_blink = dt.datetime.now()
         printer_color = None
+        direction = 1
 
         while True:
             now2 = dt.datetime.now()
-            if self.leds_status != current_status or self.leds_status == PRINT_COMPLETE or (now2-now_golbal).total_seconds() > WLED_UDP_WAIT*0.9:
-                now_golbal = dt.datetime.now()
+            if self.leds_status != current_status or self.leds_status == PRINT_COMPLETE or (now2-now_golbal).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
                 current_status = self.leds_status            
                 if self.leds_status == STATUS_NONE:
                     printer_color = BACK_COLOR_OFF
@@ -398,12 +406,32 @@ class UpdateLedsOther(threading.Thread):
                 elif self.leds_status == PRINT_ON:
                     printer_color = BACK_COLOR_PRINT_ON
                 elif self.leds_status == PRINT_COMPLETE:
+                    '''
                     if (now2-now_blink).total_seconds() > COMPLETE_BLINK:
                         if printer_color != BACK_COLOR_PRINT_COMPLETE1:
                             printer_color = BACK_COLOR_PRINT_COMPLETE1
                         else:
                             printer_color = BACK_COLOR_PRINT_COMPLETE2
                         now_blink = dt.datetime.now()
+                        '''
+                    if (now2-now_blink).total_seconds() > COMPLETE_BLINK:
+                        now_blink = dt.datetime.now()
+                        direction *= -1
+                    if direction == 1:
+                        r = BACK_COLOR_PRINT_COMPLETE1[0] + (BACK_COLOR_PRINT_COMPLETE2[0]-BACK_COLOR_PRINT_COMPLETE1[0]) * (now2-now_blink).total_seconds() / COMPLETE_BLINK
+                        g = BACK_COLOR_PRINT_COMPLETE1[1] + (BACK_COLOR_PRINT_COMPLETE2[1]-BACK_COLOR_PRINT_COMPLETE1[1]) * (now2-now_blink).total_seconds() / COMPLETE_BLINK
+                        b = BACK_COLOR_PRINT_COMPLETE1[2] + (BACK_COLOR_PRINT_COMPLETE2[2]-BACK_COLOR_PRINT_COMPLETE1[2]) * (now2-now_blink).total_seconds() / COMPLETE_BLINK
+                    else:
+                        r = BACK_COLOR_PRINT_COMPLETE2[0] + (BACK_COLOR_PRINT_COMPLETE1[0]-BACK_COLOR_PRINT_COMPLETE2[0]) * (now2-now_blink).total_seconds() / COMPLETE_BLINK
+                        g = BACK_COLOR_PRINT_COMPLETE2[1] + (BACK_COLOR_PRINT_COMPLETE1[1]-BACK_COLOR_PRINT_COMPLETE2[1]) * (now2-now_blink).total_seconds() / COMPLETE_BLINK
+                        b = BACK_COLOR_PRINT_COMPLETE2[2] + (BACK_COLOR_PRINT_COMPLETE1[2]-BACK_COLOR_PRINT_COMPLETE2[2]) * (now2-now_blink).total_seconds() / COMPLETE_BLINK
+                    if r < 0: r = 0
+                    if r > 255: r = 255
+                    if g < 0: g = 0
+                    if g > 255: g = 255
+                    if b < 0: b = 0
+                    if b > 255: b = 255
+                    printer_color = [round(r),round(g),round(b)]
 
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
                 for i in range(NB_LEDS):
@@ -413,7 +441,7 @@ class UpdateLedsOther(threading.Thread):
 
                 Message = bytearray(v)
                 clientSock.sendto (Message, (WLED_IP, WLED_PORT))
-
+                now_golbal = dt.datetime.now()
                 time.sleep(TIME_SLEEP)
 
 if __name__ == "__main__":
@@ -433,4 +461,4 @@ if __name__ == "__main__":
                               on_error=on_error,
                               on_close=on_close)
     while True:
-        ws.run_forever() 
+        ws.run_forever()

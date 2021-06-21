@@ -82,6 +82,7 @@ PERCENT_TARGET_TEMP=0.99
 ### after this time limit, wled stops the synchronization until a new udp data in received
 WLED_UDP_WAIT=5
 WLED_UDP_WAIT_PERCENT=0.8
+
 ### wait time for the each step of the update leds threads
 TIME_SLEEP=0.005
 
@@ -130,9 +131,14 @@ def on_message(ws, message):
             currentParams.printer_state = status['print_stats']['state']
     elif 'method' in json_message:
         method=json_message['method']
-        if method == 'notify_proc_stat_update':
-            currentParams.klipper_ready = True
+        if method == 'notify_klippy_disconnected':
+            currentParams.klipper_ready = False
+        if method == 'notify_klippy_ready':
+            moonrakerSubscribe()
+        #if method == 'notify_proc_stat_update':
+        #    currentParams.klipper_ready = True
         if method == 'notify_status_update':
+            currentParams.klipper_ready = True
             params=json_message['params'][0]
             if 'heater_bed' in params:
                 if 'target' in params['heater_bed']:
@@ -149,52 +155,58 @@ def on_message(ws, message):
             if 'print_stats' in params:
                 if 'state' in params['print_stats']:
                     currentParams.printer_state=params['print_stats']['state']
-            
-    if currentParams.filament_detected != None:
-        updateLedsFilament.leds_status = currentParams.filament_detected
-
-    if currentParams.heater_bed_target == 0:
-        if currentParams.heater_bed_temp < HEATER_BED_TEMP_COLD:
-            updateLedsHeaterBed.leds_status = COLD
-            updateLedsHeaterBed.progress = 100
-        else:
-            updateLedsHeaterBed.leds_status = TO_COLD
-            updateLedsHeaterBed.progress = HEATER_BED_TEMP_COLD / currentParams.heater_bed_temp
+    
+    if currentParams.klipper_ready == False:
+        updateLedsFilament.leds_status = STATUS_NONE
+        updateLedsExtruder.leds_status = STATUS_NONE
+        updateLedsHeaterBed.leds_status = STATUS_NONE
+        updateLedsOther.leds_status = STATUS_NONE
     else:
-        if currentParams.heater_bed_temp < currentParams.heater_bed_target * PERCENT_TARGET_TEMP:
-            updateLedsHeaterBed.leds_status = TO_HOT
-            updateLedsHeaterBed.progress = currentParams.heater_bed_temp / currentParams.heater_bed_target
-        elif currentParams.heater_bed_temp > currentParams.heater_bed_target * (1+PERCENT_TARGET_TEMP):
-            updateLedsHeaterBed.leds_status = TO_HOT
-            updateLedsHeaterBed.progress = currentParams.heater_bed_target / currentParams.heater_bed_temp
-        else:
-            updateLedsHeaterBed.leds_status = HOT
-            updateLedsHeaterBed.progress = 100
+        if currentParams.filament_detected != None:
+            updateLedsFilament.leds_status = currentParams.filament_detected
 
-    if currentParams.extruder_target == 0:
-        if currentParams.extruder_temp < EXTRUDER_TEMP_COLD:
-            updateLedsExtruder.leds_status = COLD
-            updateLedsExtruder.progress = 100
+        if currentParams.heater_bed_target == 0:
+            if currentParams.heater_bed_temp < HEATER_BED_TEMP_COLD:
+                updateLedsHeaterBed.leds_status = COLD
+                updateLedsHeaterBed.progress = 100
+            else:
+                updateLedsHeaterBed.leds_status = TO_COLD
+                updateLedsHeaterBed.progress = HEATER_BED_TEMP_COLD / currentParams.heater_bed_temp
         else:
-            updateLedsExtruder.leds_status = TO_COLD
-            updateLedsExtruder.progress = EXTRUDER_TEMP_COLD / currentParams.extruder_temp
-    else:
-        if currentParams.extruder_temp < currentParams.extruder_target * PERCENT_TARGET_TEMP:
-            updateLedsExtruder.leds_status = TO_HOT
-            updateLedsExtruder.progress = currentParams.extruder_temp / currentParams.extruder_target
-        elif currentParams.extruder_temp > currentParams.extruder_target * (1+PERCENT_TARGET_TEMP):
-            updateLedsExtruder.leds_status = TO_HOT
-            updateLedsExtruder.progress = currentParams.extruder_target / currentParams.extruder_temp
-        else:
-            updateLedsExtruder.leds_status = HOT
-            updateLedsExtruder.progress = 100
+            if currentParams.heater_bed_temp < currentParams.heater_bed_target * PERCENT_TARGET_TEMP:
+                updateLedsHeaterBed.leds_status = TO_HOT
+                updateLedsHeaterBed.progress = currentParams.heater_bed_temp / currentParams.heater_bed_target
+            elif currentParams.heater_bed_temp > currentParams.heater_bed_target * (1+PERCENT_TARGET_TEMP):
+                updateLedsHeaterBed.leds_status = TO_HOT
+                updateLedsHeaterBed.progress = currentParams.heater_bed_target / currentParams.heater_bed_temp
+            else:
+                updateLedsHeaterBed.leds_status = HOT
+                updateLedsHeaterBed.progress = 100
 
-    if currentParams.printer_state == 'standby' or currentParams.printer_state == None or (currentParams.extruder_target == 0 and currentParams.heater_bed_target == 0):
-        updateLedsOther.leds_status = PRINT_OFF
-    elif currentParams.printer_state == 'complete':
-        updateLedsOther.leds_status = PRINT_COMPLETE
-    else:
-        updateLedsOther.leds_status = PRINT_ON
+        if currentParams.extruder_target == 0:
+            if currentParams.extruder_temp < EXTRUDER_TEMP_COLD:
+                updateLedsExtruder.leds_status = COLD
+                updateLedsExtruder.progress = 100
+            else:
+                updateLedsExtruder.leds_status = TO_COLD
+                updateLedsExtruder.progress = EXTRUDER_TEMP_COLD / currentParams.extruder_temp
+        else:
+            if currentParams.extruder_temp < currentParams.extruder_target * PERCENT_TARGET_TEMP:
+                updateLedsExtruder.leds_status = TO_HOT
+                updateLedsExtruder.progress = currentParams.extruder_temp / currentParams.extruder_target
+            elif currentParams.extruder_temp > currentParams.extruder_target * (1+PERCENT_TARGET_TEMP):
+                updateLedsExtruder.leds_status = TO_HOT
+                updateLedsExtruder.progress = currentParams.extruder_target / currentParams.extruder_temp
+            else:
+                updateLedsExtruder.leds_status = HOT
+                updateLedsExtruder.progress = 100
+
+        if currentParams.printer_state == 'standby' or currentParams.printer_state == None or (currentParams.extruder_target == 0 and currentParams.heater_bed_target == 0):
+            updateLedsOther.leds_status = PRINT_OFF
+        elif currentParams.printer_state == 'complete':
+            updateLedsOther.leds_status = PRINT_COMPLETE
+        else:
+            updateLedsOther.leds_status = PRINT_ON
 
 def on_error(ws, error):
     print(error)
@@ -210,23 +222,8 @@ def on_close(ws, close_status_code, close_msg):
 def on_open(ws):
     def run(*args):
         print("### open ###")
-        currentParams.klipper_ready = False
-        while currentParams.klipper_ready == False:
-            print("Waiting until klipper_ready")
-            ws.send("""{
-                "jsonrpc": "2.0",
-                "method": "printer.objects.subscribe",
-                "params": {
-                    "objects": {
-                        "heater_bed": ["target", "temperature"],
-                        "extruder": ["target", "temperature"],
-                        "filament_switch_sensor runout_sensor": ["filament_detected"],
-                        "print_stats": ["state"]
-                    }
-                },
-                "id": 5434
-            }""")
-            time.sleep(1)
+        moonrakerSubscribe()
+
     thread.start_new_thread(run, ())
 
 class CurrentParams():
@@ -442,6 +439,25 @@ class UpdateLedsOther(threading.Thread):
                 currentParams.now = dt.datetime.now()
                 time.sleep(TIME_SLEEP)
 
+def moonrakerSubscribe():
+    currentParams.klipper_ready = False
+    while currentParams.klipper_ready == False:
+        print("Waiting until klipper_ready")
+        ws.send("""{
+                "jsonrpc": "2.0",
+                "method": "printer.objects.subscribe",
+                "params": {
+                    "objects": {
+                        "heater_bed": ["target", "temperature"],
+                        "extruder": ["target", "temperature"],
+                        "filament_switch_sensor runout_sensor": ["filament_detected"],
+                        "print_stats": ["state"]
+                    }
+                },
+                "id": 5434
+            }""")
+        time.sleep(1)
+
 if __name__ == "__main__":
     currentParams = CurrentParams()
     updateLedsExtruder = UpdateLedsTemperature(begin=EXTRUDER_BEGIN,end=EXTRUDER_END,direction=TO_LEFT)
@@ -452,6 +468,7 @@ if __name__ == "__main__":
     updateLedsFilament.start()
     updateLedsOther = UpdateLedsOther()
     updateLedsOther.start()
+    
     #websocket.enableTrace(True)
     ws = websocket.WebSocketApp("ws://"+PRINTER_IP+":"+str(PRINTER_PORT)+"/websocket",
                               on_open=on_open,

@@ -103,6 +103,8 @@ PRINT_COMPLETE = 3
 
 STATUS_NONE = -1
 STATUS_INIT = -2
+STATUS_FALSE = -3
+STATUS_TRUE = -4
 
 TO_RIGHT = 1
 TO_LEFT = 2
@@ -122,6 +124,7 @@ def on_message(ws, message):
     json_message = json.loads(message)
     if 'result' in json_message:
         if 'status' in json_message['result']:
+            #réponse à la subscription
             status = json_message['result']['status']
             currentParams.heater_bed_target = status['heater_bed']['target']
             currentParams.heater_bed_temp = status['heater_bed']['temperature']
@@ -129,6 +132,10 @@ def on_message(ws, message):
             currentParams.extruder_temp = status['extruder']['temperature']
             currentParams.filament_detected = status['filament_switch_sensor runout_sensor']['filament_detected']
             currentParams.printer_state = status['print_stats']['state']
+        elif 'software_version' in json_message['result']:
+            #réponse au printer.info pour vérifier au démarrage si l'imprimante est prête
+            if json_message['result']['state'] == "ready":
+                currentParams.klipper_ready = True
     elif 'method' in json_message:
         method=json_message['method']
         if method == 'notify_klippy_disconnected':
@@ -155,7 +162,7 @@ def on_message(ws, message):
             if 'print_stats' in params:
                 if 'state' in params['print_stats']:
                     currentParams.printer_state=params['print_stats']['state']
-    
+
     if currentParams.klipper_ready == False:
         updateLedsFilament.leds_status = STATUS_NONE
         updateLedsExtruder.leds_status = STATUS_NONE
@@ -163,7 +170,12 @@ def on_message(ws, message):
         updateLedsOther.leds_status = STATUS_NONE
     else:
         if currentParams.filament_detected != None:
-            updateLedsFilament.leds_status = currentParams.filament_detected
+            if currentParams.filament_detected == False:
+                updateLedsFilament.leds_status = STATUS_FALSE
+            elif currentParams.filament_detected == True:
+                updateLedsFilament.leds_status = STATUS_TRUE
+            else:
+                updateLedsFilament.leds_status = STATUS_NONE
 
         if currentParams.heater_bed_target == 0:
             if currentParams.heater_bed_temp < HEATER_BED_TEMP_COLD:
@@ -244,7 +256,8 @@ class UpdateLedsFilament(threading.Thread):
         self.daemon = True 
         self.state = threading.Condition()
         self.leds_status = STATUS_NONE
-      
+        self.switch_on = True
+
     def run(self):
         current_pos = FILAMENT_SENSOR_BEGIN
         direction = 1
@@ -252,16 +265,16 @@ class UpdateLedsFilament(threading.Thread):
 
         clientSock = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
         now_animation = dt.datetime.now()
-        current_status = STATUS_INIT
 
-        while True:
+        while True and self.switch_on:
             now2 = dt.datetime.now()
-            if self.leds_status != current_status or self.leds_status == False or (now2-currentParams.now).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
+            now_animation_update = False
+            if self.leds_status != current_status or self.leds_status == STATUS_FALSE or (now2-currentParams.now).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
                 current_status = self.leds_status
                 if self.leds_status == STATUS_NONE:
                     filament_sensor_color = BACK_COLOR_OFF
 
-                if self.leds_status == True:
+                if self.leds_status == STATUS_TRUE:
                     filament_sensor_color = FILAMENT_SENSOR_OK
                 else:
                     if (now2-now_animation).total_seconds() > FILAMENT_ANIMATION_SPEED:
@@ -270,11 +283,11 @@ class UpdateLedsFilament(threading.Thread):
                             direction = -1
                         if current_pos == FILAMENT_SENSOR_BEGIN:
                             direction = 1
-                        now_animation = dt.datetime.now()
+                        now_animation_update = True
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
                 for i in range(FILAMENT_SENSOR_BEGIN,FILAMENT_SENSOR_END+1):
                     v.extend([i])
-                    if self.leds_status == True or self.leds_status == STATUS_NONE:
+                    if self.leds_status == STATUS_TRUE or self.leds_status == STATUS_NONE:
                         color = filament_sensor_color
                     elif i == current_pos:
                         color = FILAMENT_SENSOR_KO1
@@ -296,11 +309,13 @@ class UpdateLedsFilament(threading.Thread):
                     v.extend([i])
                     v.extend(filament_sensor_color)
     '''
-                    current_status = self.leds_status
-                    Message = bytearray(v)
-                    clientSock.sendto (Message, (WLED_IP, WLED_PORT))
-                    currentParams.now = dt.datetime.now()
-                    time.sleep(TIME_SLEEP)
+                current_status = self.leds_status
+                Message = bytearray(v)
+                clientSock.sendto (Message, (WLED_IP, WLED_PORT))
+                currentParams.now = dt.datetime.now()
+                if now_animation_update:
+                    now_animation = dt.datetime.now()
+            time.sleep(TIME_SLEEP)
 
 class UpdateLedsTemperature(threading.Thread):
     def __init__(self,begin,end,direction):
@@ -313,6 +328,7 @@ class UpdateLedsTemperature(threading.Thread):
         self.progress = 100
         self.end_pos = begin - 1
         self.direction = direction
+        self.switch_on = True
 
     def run(self):
         clientSock = socket.socket (socket.AF_INET, socket.SOCK_DGRAM)
@@ -320,7 +336,7 @@ class UpdateLedsTemperature(threading.Thread):
         now_animation = dt.datetime.now()
         direction = 1
 
-        while True:
+        while True and self.switch_on:
             now2 = dt.datetime.now()
             if (self.leds_status == TO_HOT or self.leds_status == TO_COLD) or self.leds_status != current_status or (now2-currentParams.now).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
                 current_status = self.leds_status
@@ -371,7 +387,7 @@ class UpdateLedsTemperature(threading.Thread):
                 Message = bytearray(v)
                 clientSock.sendto (Message, (WLED_IP, WLED_PORT))
                 currentParams.now = dt.datetime.now()
-                time.sleep(TIME_SLEEP)
+            time.sleep(TIME_SLEEP)
 
 class UpdateLedsOther(threading.Thread):
     def __init__(self):
@@ -379,6 +395,7 @@ class UpdateLedsOther(threading.Thread):
         self.daemon = True 
         self.state = threading.Condition()
         self.leds_status = STATUS_NONE
+        self.switch_on = True
        
     def run(self):
         printer_color = BACK_COLOR_OFF
@@ -388,7 +405,7 @@ class UpdateLedsOther(threading.Thread):
         printer_color = None
         direction = 1
 
-        while True:
+        while True and self.switch_on:
             now2 = dt.datetime.now()
             if self.leds_status != current_status or self.leds_status == PRINT_COMPLETE or (now2-currentParams.now).total_seconds() > WLED_UDP_WAIT * WLED_UDP_WAIT_PERCENT:
                 current_status = self.leds_status            
@@ -437,36 +454,50 @@ class UpdateLedsOther(threading.Thread):
                 Message = bytearray(v)
                 clientSock.sendto (Message, (WLED_IP, WLED_PORT))
                 currentParams.now = dt.datetime.now()
-                time.sleep(TIME_SLEEP)
+            time.sleep(TIME_SLEEP)
 
 def moonrakerSubscribe():
     currentParams.klipper_ready = False
     while currentParams.klipper_ready == False:
-        print("Waiting until klipper_ready")
+        print("Waiting until printer ready")
         ws.send("""{
                 "jsonrpc": "2.0",
-                "method": "printer.objects.subscribe",
-                "params": {
-                    "objects": {
-                        "heater_bed": ["target", "temperature"],
-                        "extruder": ["target", "temperature"],
-                        "filament_switch_sensor runout_sensor": ["filament_detected"],
-                        "print_stats": ["state"]
-                    }
-                },
+                "method": "printer.info",
                 "id": 5434
             }""")
         time.sleep(1)
 
+    print("Printer is ready")
+    ws.send("""{
+        "jsonrpc": "2.0",
+        "method": "printer.objects.subscribe",
+        "params": {
+            "objects": {
+                "heater_bed": ["target", "temperature"],
+                "extruder": ["target", "temperature"],
+                "filament_switch_sensor runout_sensor": ["filament_detected"],
+                "print_stats": ["state"]
+            }
+        },
+        "id": 5434
+    }""")
+
 if __name__ == "__main__":
+    #if DEBUG:
+    #    f = open("klipper-leds.log", "w")
+
     currentParams = CurrentParams()
     updateLedsExtruder = UpdateLedsTemperature(begin=EXTRUDER_BEGIN,end=EXTRUDER_END,direction=TO_LEFT)
+    updateLedsExtruder.switch_on = True
     updateLedsExtruder.start()
     updateLedsHeaterBed = UpdateLedsTemperature(begin=HEATER_BED_BEGIN,end=HEATER_BED_END,direction=TO_RIGHT)
+    updateLedsHeaterBed.switch_on = True
     updateLedsHeaterBed.start()
     updateLedsFilament = UpdateLedsFilament()
+    updateLedsFilament.switch_on = True
     updateLedsFilament.start()
     updateLedsOther = UpdateLedsOther()
+    updateLedsOther.switch_on = True
     updateLedsOther.start()
     
     #websocket.enableTrace(True)
@@ -476,4 +507,4 @@ if __name__ == "__main__":
                               on_error=on_error,
                               on_close=on_close)
     while True:
-        ws.run_forever() 
+        ws.run_forever()

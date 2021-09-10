@@ -1,3 +1,4 @@
+DEBUG = False
 ##################################################################################
 ######                      BEGINING OF THE SETTINGS                        ###### 
 ##################################################################################
@@ -109,12 +110,9 @@ STATUS_TRUE = -4
 TO_RIGHT = 1
 TO_LEFT = 2
 
-import json, socket, time, websocket, threading
+import json, socket, time, websocket, threading, sys
 import datetime as dt
-try:
-    import thread
-except ImportError:
-    import _thread as thread
+import _thread as thread
 
 from requests.models import parse_header_links
 
@@ -124,6 +122,7 @@ def on_message(ws, message):
     json_message = json.loads(message)
     if 'result' in json_message:
         if 'status' in json_message['result']:
+            print("subscription ok")
             #réponse à la subscription
             status = json_message['result']['status']
             currentParams.heater_bed_target = status['heater_bed']['target']
@@ -132,20 +131,21 @@ def on_message(ws, message):
             currentParams.extruder_temp = status['extruder']['temperature']
             currentParams.filament_detected = status['filament_switch_sensor runout_sensor']['filament_detected']
             currentParams.printer_state = status['print_stats']['state']
+            currentParams.klipper_ready = True
         elif 'software_version' in json_message['result']:
             #réponse au printer.info pour vérifier au démarrage si l'imprimante est prête
             if json_message['result']['state'] == "ready":
-                currentParams.klipper_ready = True
+                currentParams.printer_ready = True
     elif 'method' in json_message:
         method=json_message['method']
         if method == 'notify_klippy_disconnected':
+            print("klippy disconnected")
             currentParams.klipper_ready = False
         if method == 'notify_klippy_ready':
+            print("klippy ready")
             moonrakerSubscribe()
-        #if method == 'notify_proc_stat_update':
-        #    currentParams.klipper_ready = True
         if method == 'notify_status_update':
-            currentParams.klipper_ready = True
+            #currentParams.klipper_ready = True
             params=json_message['params'][0]
             if 'heater_bed' in params:
                 if 'target' in params['heater_bed']:
@@ -230,7 +230,8 @@ def on_close(ws, close_status_code, close_msg):
     updateLedsFilament.leds_status = STATUS_NONE
     updateLedsOther.leds_status = STATUS_NONE
     currentParams.klipper_ready = False
-    
+    currentParams.printer_ready = False
+
 def on_open(ws):
     def run(*args):
         print("### open ###")
@@ -457,17 +458,22 @@ class UpdateLedsOther(threading.Thread):
             time.sleep(TIME_SLEEP)
 
 def moonrakerSubscribe():
+    print("moonraker subscription")
     currentParams.klipper_ready = False
-    while currentParams.klipper_ready == False:
-        print("Waiting until printer ready")
+    currentParams.printer_ready = False
+    text = "Waiting until printer ready"
+    while currentParams.printer_ready == False:
+        print(text, end = "\r")
         ws.send("""{
                 "jsonrpc": "2.0",
                 "method": "printer.info",
                 "id": 5434
             }""")
         time.sleep(1)
+        text += "."
+    print("")
 
-    print("Printer is ready")
+    print("Printer is ready / asking subscription")
     ws.send("""{
         "jsonrpc": "2.0",
         "method": "printer.objects.subscribe",

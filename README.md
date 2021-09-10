@@ -1,5 +1,6 @@
 # klipper-leds
 synchronize leds with klipper
+
 TODO: adalight connection with wled to improve responsiveness
 
 ## 1. installation

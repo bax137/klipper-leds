@@ -44,4 +44,5 @@ WARNING: install at least the 0.13 version of wled for a good stability of the s
 https://github.com/Aircoookie/WLED/releases
 
 WLED configuration for an ESP32 and SPI ledstrip (APA102c):
+
 ![WLED configuration](wled.png)

@@ -95,7 +95,7 @@ SERIAL_TIMEOUT = 0
 
 ### wait time for the each step of the update leds threads
 TIME_SLEEP_WLED=0.001
-TIME_SLEEP_SERIAL=0.001
+TIME_SLEEP_SERIAL=0.002
 
 ##################################################################################
 ######                         END OF THE SETTINGS                          ###### 

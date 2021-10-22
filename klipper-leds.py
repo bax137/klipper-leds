@@ -94,8 +94,8 @@ WLED_UDP_WAIT_PERCENT=0.8
 SERIAL_TIMEOUT = 0
 
 ### wait time for the each step of the update leds threads
-TIME_SLEEP_WLED=0.01
-TIME_SLEEP_SERIAL=0.01
+TIME_SLEEP_WLED=0.001
+TIME_SLEEP_SERIAL=0.001
 
 ##################################################################################
 ######                         END OF THE SETTINGS                          ###### 

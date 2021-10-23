@@ -57,6 +57,7 @@ BACK_COLOR_PRINT_ON=WHITE
 ### color when the printer is ON and the print is complete
 BACK_COLOR_PRINT_COMPLETE1=GREEN
 BACK_COLOR_PRINT_COMPLETE2=BACK_COLOR_PRINT_OFF
+### duration in seconds for a complete blink for print complete
 COMPLETE_BLINK = 1
 ### color for cold temperature
 COLD_COLOR=BLUE
@@ -94,8 +95,8 @@ WLED_UDP_WAIT_PERCENT=0.8
 SERIAL_TIMEOUT = 0
 
 ### wait time for the each step of the update leds threads
-TIME_SLEEP_WLED=0.001
-TIME_SLEEP_SERIAL=0.002
+TIME_SLEEP_WLED=0.01
+TIME_SLEEP_SERIAL=0.05
 
 ##################################################################################
 ######                         END OF THE SETTINGS                          ###### 

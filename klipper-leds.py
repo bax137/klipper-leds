@@ -23,7 +23,7 @@ WLED_SERIAL='/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Contro
 
 ### led strip configuration
 ### number of leds on the strip
-NB_LEDS=84
+NB_LEDS=87
 
 ### area of heater bed temperature indicator (position of the leds on the strip)
 HEATER_BED_BEGIN=1
@@ -34,6 +34,8 @@ EXTRUDER_END=21
 ### area of filament (position of the leds on the strip)
 FILAMENT_SENSOR_BEGIN=10
 FILAMENT_SENSOR_END=12
+### logo led
+LOGO=84
 
 ### definition of the colors
 RED = [255,0,0]
@@ -416,8 +418,13 @@ def UpdateLeds():
                 if LINK_MODE == WIFI:            
                     v.extend([led_index])
                     v.extend(color)
+                    if led_index == UpdateLedsParams.extruder_end:
+                        v.extend([LOGO])
+                        v.extend(color)
                 else:
                     vLedsMatrix[led_index] = color
+                    if led_index == UpdateLedsParams.extruder_end:
+                        vLedsMatrix[LOGO] = color
 
             if LINK_MODE == WIFI:
                 Message = bytearray(v)
@@ -507,7 +514,7 @@ def UpdateLeds():
             if LINK_MODE == WIFI:
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
             for i in range(1,NB_LEDS+1):
-                if (i < EXTRUDER_BEGIN or i > EXTRUDER_END) and (i < HEATER_BED_BEGIN or i > HEATER_BED_END) and (i < FILAMENT_SENSOR_BEGIN or i > FILAMENT_SENSOR_END):
+                if (i < EXTRUDER_BEGIN or i > EXTRUDER_END) and (i < HEATER_BED_BEGIN or i > HEATER_BED_END) and (i < FILAMENT_SENSOR_BEGIN or i > FILAMENT_SENSOR_END) and ( i != LOGO):
                     if LINK_MODE == WIFI:
                         v.extend([i])
                         v.extend(printer_color)

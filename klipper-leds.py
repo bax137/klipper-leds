@@ -152,7 +152,7 @@ def on_message(ws, message):
             currentParams.heater_bed_temp = status['heater_bed']['temperature']
             currentParams.extruder_target = status['extruder']['target']
             currentParams.extruder_temp = status['extruder']['temperature']
-            currentParams.filament_detected = status['filament_switch_sensor runout_sensor']['filament_detected']
+            currentParams.filament_detected = status['filament_switch_sensor toolhead_sensor']['filament_detected']
             currentParams.printer_state = status['print_stats']['state']
             currentParams.klipper_ready = True
         elif 'software_version' in json_message['result']:
@@ -180,8 +180,8 @@ def on_message(ws, message):
                     currentParams.extruder_target=params['extruder']['target']
                 if 'temperature' in params['extruder']:
                     currentParams.extruder_temp=params['extruder']['temperature']
-            if 'filament_switch_sensor runout_sensor' in params:
-                currentParams.filament_detected=params['filament_switch_sensor runout_sensor']['filament_detected']
+            if 'filament_switch_sensor toolhead_sensor' in params:
+                currentParams.filament_detected=params['filament_switch_sensor toolhead_sensor']['filament_detected']
             if 'print_stats' in params:
                 if 'state' in params['print_stats']:
                     currentParams.printer_state=params['print_stats']['state']
@@ -566,7 +566,7 @@ def moonrakerSubscribe():
             "objects": {
                 "heater_bed": ["target", "temperature"],
                 "extruder": ["target", "temperature"],
-                "filament_switch_sensor runout_sensor": ["filament_detected"],
+                "filament_switch_sensor toolhead_sensor": ["filament_detected"],
                 "print_stats": ["state"]
             }
         },

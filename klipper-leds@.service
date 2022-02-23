@@ -1,0 +1,14 @@
+[Unit]
+Description=Starts Klipper Leds on startup
+After=network.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=simple
+User=%i
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /home/pi/ibax/klipper-leds.py
+Restart=always
+RestartSec=2

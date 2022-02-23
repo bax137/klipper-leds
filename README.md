@@ -22,20 +22,6 @@ copy the script in ~/scripts directory
 ## 3. service
 Definition of the service:
 
-```
-[Unit]
-Description=Starts Klipper Leds on startup
-After=network.target
-[Install]
-WantedBy=multi-user.target
-[Service]
-Type=simple
-User=pi
-RemainAfterExit=yes
-ExecStart=/usr/bin/python3 /home/pi/scripts/klipper-leds.py
-Restart=always
-RestartSec=10
-```
 
 ## 4. configuration
 

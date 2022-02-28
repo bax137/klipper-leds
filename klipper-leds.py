@@ -623,7 +623,7 @@ class WebServer(BaseHTTPRequestHandler):
                 currentParams.shutdown_requested = False
             else:
                 response = 400
-                message = 'OK'
+                message = 'bad request'
         else:
             response = 404
             message = 'command not found"'

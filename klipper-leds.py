@@ -12,6 +12,7 @@ LINK_MODE = SERIAL
 ### 7125 is the default port of moonraker
 PRINTER_IP='192.168.1.63'
 PRINTER_PORT=7125
+WEBSERVER_PORT=8888
 
 ### ip and port of wled for WIFI Llink
 ### 21324 is the default port of wled
@@ -59,6 +60,9 @@ BACK_COLOR_PRINT_ON=WHITE
 ### color when the printer is ON and the print is complete
 BACK_COLOR_PRINT_COMPLETE1=GREEN
 BACK_COLOR_PRINT_COMPLETE2=BACK_COLOR_PRINT_OFF
+### color when the shutdown is requested
+BACK_COLOR_SHUTDOWN_REQUESTED1=RED
+BACK_COLOR_SHUTDOWN_REQUESTED2=BACK_COLOR_PRINT_OFF
 ### duration in seconds for a complete blink for print complete
 COMPLETE_BLINK = 1
 ### color for cold temperature
@@ -115,6 +119,7 @@ PRINTER_OFF = 0
 PRINT_ON = 1
 PRINT_OFF = 2
 PRINT_COMPLETE = 3
+SHUTDOWN_REQUESTED = 4
 
 STATUS_NONE = -1
 STATUS_INIT = -2
@@ -133,11 +138,12 @@ checksumInt = hiInt ^ loInt ^ int.from_bytes(b'\x55', byteorder="big")
 
 checksum = checksumInt.to_bytes(2, byteorder="big")
 
-import json, socket, time, websocket, serial, threading, random
+import json, socket, time, websocket, serial, threading #, random
 import datetime as dt
 import _thread as thread
 
-from requests.models import parse_header_links
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse,parse_qs
 
 def on_message(ws, message):
     #print(message)
@@ -187,71 +193,75 @@ def on_message(ws, message):
                     currentParams.printer_state=params['print_stats']['state']
 
     if currentParams.klipper_ready == False:
-        UpdateLedsParams.filament_leds_status = STATUS_NONE
-        UpdateLedsParams.extruder_leds_status = STATUS_NONE
-        UpdateLedsParams.heater_leds_status = STATUS_NONE
-        UpdateLedsParams.others_leds_status = STATUS_NONE
+        updateLedsParams.filament_leds_status = STATUS_NONE
+        updateLedsParams.extruder_leds_status = STATUS_NONE
+        updateLedsParams.heater_leds_status = STATUS_NONE
+        updateLedsParams.others_leds_status = STATUS_NONE
     else:
         if currentParams.filament_detected != None:
             if currentParams.filament_detected == False:
-                UpdateLedsParams.filament_leds_status = STATUS_FALSE
+                updateLedsParams.filament_leds_status = STATUS_FALSE
             elif currentParams.filament_detected == True:
-                UpdateLedsParams.filament_leds_status = STATUS_TRUE
+                updateLedsParams.filament_leds_status = STATUS_TRUE
             else:
-                UpdateLedsParams.filament_leds_status = STATUS_NONE
+                updateLedsParams.filament_leds_status = STATUS_NONE
 
         if currentParams.heater_bed_target == 0:
             if currentParams.heater_bed_temp < HEATER_BED_TEMP_COLD:
-                UpdateLedsParams.heater_leds_status = COLD
-                UpdateLedsParams.heater_progress = 100
+                updateLedsParams.heater_leds_status = COLD
+                updateLedsParams.heater_progress = 100
             else:
-                UpdateLedsParams.heater_leds_status = TO_COLD
-                UpdateLedsParams.heater_progress = HEATER_BED_TEMP_COLD / currentParams.heater_bed_temp
+                updateLedsParams.heater_leds_status = TO_COLD
+                updateLedsParams.heater_progress = HEATER_BED_TEMP_COLD / currentParams.heater_bed_temp
         else:
             if currentParams.heater_bed_temp < currentParams.heater_bed_target * PERCENT_TARGET_TEMP:
-                UpdateLedsParams.heater_leds_status = TO_HOT
-                UpdateLedsParams.heater_progress = currentParams.heater_bed_temp / currentParams.heater_bed_target
+                updateLedsParams.heater_leds_status = TO_HOT
+                updateLedsParams.heater_progress = currentParams.heater_bed_temp / currentParams.heater_bed_target
             elif currentParams.heater_bed_temp > currentParams.heater_bed_target * (1+PERCENT_TARGET_TEMP):
-                UpdateLedsParams.heater_leds_status = TO_HOT
-                UpdateLedsParams.heater_progress = currentParams.heater_bed_target / currentParams.heater_bed_temp
+                updateLedsParams.heater_leds_status = TO_HOT
+                updateLedsParams.heater_progress = currentParams.heater_bed_target / currentParams.heater_bed_temp
             else:
-                UpdateLedsParams.heater_leds_status = HOT
-                UpdateLedsParams.heater_progress = 100
+                updateLedsParams.heater_leds_status = HOT
+                updateLedsParams.heater_progress = 100
 
         if currentParams.extruder_target == 0:
             if currentParams.extruder_temp < EXTRUDER_TEMP_COLD:
-                UpdateLedsParams.extruder_leds_status = COLD
-                UpdateLedsParams.extruder_progress = 100
+                updateLedsParams.extruder_leds_status = COLD
+                updateLedsParams.extruder_progress = 100
             else:
-                UpdateLedsParams.extruder_leds_status = TO_COLD
-                UpdateLedsParams.extruder_progress = EXTRUDER_TEMP_COLD / currentParams.extruder_temp
+                updateLedsParams.extruder_leds_status = TO_COLD
+                updateLedsParams.extruder_progress = EXTRUDER_TEMP_COLD / currentParams.extruder_temp
         else:
             if currentParams.extruder_temp < currentParams.extruder_target * PERCENT_TARGET_TEMP:
-                UpdateLedsParams.extruder_leds_status = TO_HOT
-                UpdateLedsParams.extruder_progress = currentParams.extruder_temp / currentParams.extruder_target
+                updateLedsParams.extruder_leds_status = TO_HOT
+                updateLedsParams.extruder_progress = currentParams.extruder_temp / currentParams.extruder_target
             elif currentParams.extruder_temp > currentParams.extruder_target * (1+PERCENT_TARGET_TEMP):
-                UpdateLedsParams.extruder_leds_status = TO_HOT
-                UpdateLedsParams.extruder_progress = currentParams.extruder_target / currentParams.extruder_temp
+                updateLedsParams.extruder_leds_status = TO_HOT
+                updateLedsParams.extruder_progress = currentParams.extruder_target / currentParams.extruder_temp
             else:
-                UpdateLedsParams.extruder_leds_status = HOT
-                UpdateLedsParams.extruder_progress = 100
+                updateLedsParams.extruder_leds_status = HOT
+                updateLedsParams.extruder_progress = 100
 
-        if currentParams.printer_state == 'standby' or currentParams.printer_state == None or (currentParams.extruder_target == 0 and currentParams.heater_bed_target == 0):
-            UpdateLedsParams.others_leds_status = PRINT_OFF
-        elif currentParams.printer_state == 'complete':
-            UpdateLedsParams.others_leds_status = PRINT_COMPLETE
+        if currentParams.shutdown_requested == False:
+            if currentParams.printer_state == 'standby' or currentParams.printer_state == None or (currentParams.extruder_target == 0 and currentParams.heater_bed_target == 0):
+                updateLedsParams.others_leds_status = PRINT_OFF
+            elif currentParams.printer_state == 'complete':
+                updateLedsParams.others_leds_status = PRINT_COMPLETE
+            else:
+                updateLedsParams.others_leds_status = PRINT_ON
         else:
-            UpdateLedsParams.others_leds_status = PRINT_ON
+            updateLedsParams.others_leds_status = SHUTDOWN_REQUESTED
+
 
 def on_error(ws, error):
     print(error)
 
 def on_close(ws, close_status_code, close_msg):
     print("### closed ###")
-    UpdateLedsParams.extruder_leds_status = STATUS_NONE
-    UpdateLedsParams.heater_leds_status = STATUS_NONE
-    UpdateLedsParams.filament_leds_status = STATUS_NONE
-    UpdateLedsParams.others_leds_status = STATUS_NONE
+    updateLedsParams.extruder_leds_status = STATUS_NONE
+    updateLedsParams.heater_leds_status = STATUS_NONE
+    updateLedsParams.filament_leds_status = STATUS_NONE
+    updateLedsParams.others_leds_status = STATUS_NONE
     currentParams.klipper_ready = False
     currentParams.printer_ready = False
 
@@ -274,6 +284,7 @@ class CurrentParams():
         self.filament_detected = None
         self.printer_state = None
         self.now = dt.datetime.now()
+        self.shutdown_requested = False
 
 class UpdateLedsParams():
     def __init__(self,extruder_begin,extruder_end,extruder_direction,heater_begin,heater_end,heater_direction):
@@ -334,12 +345,12 @@ def UpdateLeds():
         #update filament leds
         now2 = dt.datetime.now()
         filament_now_animation_update = False
-        if UpdateLedsParams.filament_leds_status != filament_current_status or UpdateLedsParams.filament_leds_status == STATUS_FALSE or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
-            filament_current_status = UpdateLedsParams.filament_leds_status
-            if UpdateLedsParams.filament_leds_status == STATUS_NONE:
+        if updateLedsParams.filament_leds_status != filament_current_status or updateLedsParams.filament_leds_status == STATUS_FALSE or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
+            filament_current_status = updateLedsParams.filament_leds_status
+            if updateLedsParams.filament_leds_status == STATUS_NONE:
                 filament_sensor_color = BACK_COLOR_OFF
 
-            if UpdateLedsParams.filament_leds_status == STATUS_TRUE:
+            if updateLedsParams.filament_leds_status == STATUS_TRUE:
                 filament_sensor_color = FILAMENT_SENSOR_OK
             else:
                 if (now2-filament_now_animation).total_seconds() > FILAMENT_ANIMATION_SPEED:
@@ -355,7 +366,7 @@ def UpdateLeds():
             for i in range(FILAMENT_SENSOR_BEGIN,FILAMENT_SENSOR_END+1):
                 if LINK_MODE == WIFI:
                     v.extend([i])
-                if UpdateLedsParams.filament_leds_status == STATUS_TRUE or UpdateLedsParams.filament_leds_status == STATUS_NONE:
+                if updateLedsParams.filament_leds_status == STATUS_TRUE or updateLedsParams.filament_leds_status == STATUS_NONE:
                     color = filament_sensor_color
                 elif i == filament_current_pos:
                     color = FILAMENT_SENSOR_KO1
@@ -366,7 +377,7 @@ def UpdateLeds():
                 else:
                     vLedsMatrix[i] = color
 
-            filament_current_status = UpdateLedsParams.filament_leds_status
+            filament_current_status = updateLedsParams.filament_leds_status
             
             if LINK_MODE == WIFI:
                 Message = bytearray(v)
@@ -377,53 +388,53 @@ def UpdateLeds():
 
         #update extruder leds
         now2 = dt.datetime.now()
-        if (UpdateLedsParams.extruder_leds_status == TO_HOT or UpdateLedsParams.extruder_leds_status == TO_COLD) or UpdateLedsParams.extruder_leds_status != extruder_current_status or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
-            extruder_current_status = UpdateLedsParams.extruder_leds_status
-            if UpdateLedsParams.extruder_leds_status == STATUS_NONE:
+        if (updateLedsParams.extruder_leds_status == TO_HOT or updateLedsParams.extruder_leds_status == TO_COLD) or updateLedsParams.extruder_leds_status != extruder_current_status or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
+            extruder_current_status = updateLedsParams.extruder_leds_status
+            if updateLedsParams.extruder_leds_status == STATUS_NONE:
                 color = BACK_COLOR_OFF
 
-            if UpdateLedsParams.extruder_leds_status == COLD:
+            if updateLedsParams.extruder_leds_status == COLD:
                 color = COLD_COLOR
-            elif UpdateLedsParams.extruder_leds_status == HOT:
+            elif updateLedsParams.extruder_leds_status == HOT:
                 color = HOT_COLOR
             if LINK_MODE == WIFI:
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
 
-            for i in range(UpdateLedsParams.extruder_begin,UpdateLedsParams.extruder_end+1):
+            for i in range(updateLedsParams.extruder_begin,updateLedsParams.extruder_end+1):
                 led_index = i
-                if UpdateLedsParams.extruder_leds_status == TO_HOT or UpdateLedsParams.extruder_leds_status == TO_COLD:
+                if updateLedsParams.extruder_leds_status == TO_HOT or updateLedsParams.extruder_leds_status == TO_COLD:
                     extruder_current_status = STATUS_INIT
-                    if UpdateLedsParams.extruder_direction == TO_LEFT:
-                        led_index = UpdateLedsParams.extruder_end - i + UpdateLedsParams.extruder_begin
+                    if updateLedsParams.extruder_direction == TO_LEFT:
+                        led_index = updateLedsParams.extruder_end - i + updateLedsParams.extruder_begin
                     now2 = dt.datetime.now()
                     if (now2-extruder_now_animation).total_seconds() > TEMPERATURE_ANIMATION_SPEED:
                         extruder_now_animation = dt.datetime.now()
-                        UpdateLedsParams.extruder_end_pos += extruder_direction
-                        if UpdateLedsParams.extruder_end_pos < UpdateLedsParams.extruder_begin:
+                        updateLedsParams.extruder_end_pos += extruder_direction
+                        if updateLedsParams.extruder_end_pos < updateLedsParams.extruder_begin:
                             extruder_direction = 1
-                            UpdateLedsParams.extruder_end_pos = UpdateLedsParams.extruder_begin + 1
-                        if UpdateLedsParams.extruder_end_pos > UpdateLedsParams.extruder_begin + (float(UpdateLedsParams.extruder_progress) * float(UpdateLedsParams.extruder_end + 1 - UpdateLedsParams.extruder_begin)):
+                            updateLedsParams.extruder_end_pos = updateLedsParams.extruder_begin + 1
+                        if updateLedsParams.extruder_end_pos > updateLedsParams.extruder_begin + (float(updateLedsParams.extruder_progress) * float(updateLedsParams.extruder_end + 1 - updateLedsParams.extruder_begin)):
                             extruder_direction = -1
 
-                    if i < UpdateLedsParams.extruder_end_pos:
-                        if UpdateLedsParams.extruder_leds_status == TO_HOT:
+                    if i < updateLedsParams.extruder_end_pos:
+                        if updateLedsParams.extruder_leds_status == TO_HOT:
                             color = HOT_COLOR
-                        if UpdateLedsParams.extruder_leds_status == TO_COLD:
+                        if updateLedsParams.extruder_leds_status == TO_COLD:
                             color = COLD_COLOR
                     else:
-                        if UpdateLedsParams.extruder_leds_status == TO_HOT:
+                        if updateLedsParams.extruder_leds_status == TO_HOT:
                             color = TO_HOT_COLOR
-                        if UpdateLedsParams.extruder_leds_status == TO_COLD:
+                        if updateLedsParams.extruder_leds_status == TO_COLD:
                             color = TO_COLD_COLOR
                 if LINK_MODE == WIFI:            
                     v.extend([led_index])
                     v.extend(color)
-                    if led_index == UpdateLedsParams.extruder_end:
+                    if led_index == updateLedsParams.extruder_end:
                         v.extend([LOGO])
                         v.extend(color)
                 else:
                     vLedsMatrix[led_index] = color
-                    if led_index == UpdateLedsParams.extruder_end:
+                    if led_index == updateLedsParams.extruder_end:
                         vLedsMatrix[LOGO] = color
 
             if LINK_MODE == WIFI:
@@ -432,43 +443,43 @@ def UpdateLeds():
 
         #update heater leds
         now2 = dt.datetime.now()
-        if (UpdateLedsParams.heater_leds_status == TO_HOT or UpdateLedsParams.heater_leds_status == TO_COLD) or UpdateLedsParams.heater_leds_status != heater_current_status or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
-            heater_current_status = UpdateLedsParams.heater_leds_status
-            if UpdateLedsParams.heater_leds_status == STATUS_NONE:
+        if (updateLedsParams.heater_leds_status == TO_HOT or updateLedsParams.heater_leds_status == TO_COLD) or updateLedsParams.heater_leds_status != heater_current_status or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
+            heater_current_status = updateLedsParams.heater_leds_status
+            if updateLedsParams.heater_leds_status == STATUS_NONE:
                 color = BACK_COLOR_OFF
 
-            if UpdateLedsParams.heater_leds_status == COLD:
+            if updateLedsParams.heater_leds_status == COLD:
                 color = COLD_COLOR
-            elif UpdateLedsParams.heater_leds_status == HOT:
+            elif updateLedsParams.heater_leds_status == HOT:
                 color = HOT_COLOR
             if LINK_MODE == WIFI:
                 v = [WLED_UDP_MODE_WARLS,WLED_UDP_WAIT]
 
-            for i in range(UpdateLedsParams.heater_begin,UpdateLedsParams.heater_end+1):
+            for i in range(updateLedsParams.heater_begin,updateLedsParams.heater_end+1):
                 led_index = i
-                if UpdateLedsParams.heater_leds_status == TO_HOT or UpdateLedsParams.heater_leds_status == TO_COLD:
+                if updateLedsParams.heater_leds_status == TO_HOT or updateLedsParams.heater_leds_status == TO_COLD:
                     heater_current_status = STATUS_INIT
-                    if UpdateLedsParams.heater_direction == TO_LEFT:
-                        led_index = UpdateLedsParams.heater_end - i + UpdateLedsParams.heater_begin
+                    if updateLedsParams.heater_direction == TO_LEFT:
+                        led_index = updateLedsParams.heater_end - i + updateLedsParams.heater_begin
                     now2 = dt.datetime.now()
                     if (now2-heater_now_animation).total_seconds() > TEMPERATURE_ANIMATION_SPEED:
                         heater_now_animation = dt.datetime.now()
-                        UpdateLedsParams.heater_end_pos += heater_direction
-                        if UpdateLedsParams.heater_end_pos < UpdateLedsParams.heater_begin:
+                        updateLedsParams.heater_end_pos += heater_direction
+                        if updateLedsParams.heater_end_pos < updateLedsParams.heater_begin:
                             heater_direction = 1
-                            UpdateLedsParams.heater_end_pos = UpdateLedsParams.heater_begin + 1
-                        if UpdateLedsParams.heater_end_pos > UpdateLedsParams.heater_begin + (float(UpdateLedsParams.heater_progress) * float(UpdateLedsParams.heater_end + 1 - UpdateLedsParams.heater_begin)):
+                            updateLedsParams.heater_end_pos = updateLedsParams.heater_begin + 1
+                        if updateLedsParams.heater_end_pos > updateLedsParams.heater_begin + (float(updateLedsParams.heater_progress) * float(updateLedsParams.heater_end + 1 - updateLedsParams.heater_begin)):
                             heater_direction = -1
 
-                    if i < UpdateLedsParams.heater_end_pos:
-                        if UpdateLedsParams.heater_leds_status == TO_HOT:
+                    if i < updateLedsParams.heater_end_pos:
+                        if updateLedsParams.heater_leds_status == TO_HOT:
                             color = HOT_COLOR
-                        if UpdateLedsParams.heater_leds_status == TO_COLD:
+                        if updateLedsParams.heater_leds_status == TO_COLD:
                             color = COLD_COLOR
                     else:
-                        if UpdateLedsParams.heater_leds_status == TO_HOT:
+                        if updateLedsParams.heater_leds_status == TO_HOT:
                             color = TO_HOT_COLOR
-                        if UpdateLedsParams.heater_leds_status == TO_COLD:
+                        if updateLedsParams.heater_leds_status == TO_COLD:
                             color = TO_COLD_COLOR
                 if LINK_MODE == WIFI:
                     v.extend([led_index])
@@ -482,28 +493,33 @@ def UpdateLeds():
 
         #update other leds
         now2 = dt.datetime.now()
-        if UpdateLedsParams.others_leds_status != others_current_status or UpdateLedsParams.others_leds_status == PRINT_COMPLETE or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
-            others_current_status = UpdateLedsParams.others_leds_status            
-            if UpdateLedsParams.others_leds_status == STATUS_NONE:
+        if updateLedsParams.others_leds_status != others_current_status or updateLedsParams.others_leds_status == PRINT_COMPLETE or updateLedsParams.others_leds_status == SHUTDOWN_REQUESTED or (now2-currentParams.now).total_seconds() > UPDATE_TIMEOUT:
+            others_current_status = updateLedsParams.others_leds_status            
+            if updateLedsParams.others_leds_status == STATUS_NONE:
                 printer_color = BACK_COLOR_OFF
-            elif UpdateLedsParams.others_leds_status == PRINTER_OFF:
+            elif updateLedsParams.others_leds_status == PRINTER_OFF:
                 printer_color = BACK_COLOR_OFF
-            elif UpdateLedsParams.others_leds_status == PRINT_OFF:
+            elif updateLedsParams.others_leds_status == PRINT_OFF:
                 printer_color = BACK_COLOR_PRINT_OFF
-            elif UpdateLedsParams.others_leds_status == PRINT_ON:
+            elif updateLedsParams.others_leds_status == PRINT_ON:
                 printer_color = BACK_COLOR_PRINT_ON
-            elif UpdateLedsParams.others_leds_status == PRINT_COMPLETE:
+            elif updateLedsParams.others_leds_status == PRINT_COMPLETE or updateLedsParams.others_leds_status == SHUTDOWN_REQUESTED:
                 if (now2-others_now_blink).total_seconds() > COMPLETE_BLINK:
                     others_now_blink = dt.datetime.now()
                     others_direction *= -1
+                back_color1 = BACK_COLOR_PRINT_COMPLETE1
+                back_color2 = BACK_COLOR_PRINT_COMPLETE2
+                if updateLedsParams.others_leds_status == SHUTDOWN_REQUESTED:
+                    back_color1 = BACK_COLOR_SHUTDOWN_REQUESTED1
+                    back_color2 = BACK_COLOR_SHUTDOWN_REQUESTED2
                 if others_direction == 1:
-                    r = BACK_COLOR_PRINT_COMPLETE1[0] + (BACK_COLOR_PRINT_COMPLETE2[0]-BACK_COLOR_PRINT_COMPLETE1[0]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
-                    g = BACK_COLOR_PRINT_COMPLETE1[1] + (BACK_COLOR_PRINT_COMPLETE2[1]-BACK_COLOR_PRINT_COMPLETE1[1]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
-                    b = BACK_COLOR_PRINT_COMPLETE1[2] + (BACK_COLOR_PRINT_COMPLETE2[2]-BACK_COLOR_PRINT_COMPLETE1[2]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
+                    r = back_color1[0] + (back_color2[0]-back_color1[0]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
+                    g = back_color1[1] + (back_color2[1]-back_color1[1]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
+                    b = back_color1[2] + (back_color2[2]-back_color1[2]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
                 else:
-                    r = BACK_COLOR_PRINT_COMPLETE2[0] + (BACK_COLOR_PRINT_COMPLETE1[0]-BACK_COLOR_PRINT_COMPLETE2[0]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
-                    g = BACK_COLOR_PRINT_COMPLETE2[1] + (BACK_COLOR_PRINT_COMPLETE1[1]-BACK_COLOR_PRINT_COMPLETE2[1]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
-                    b = BACK_COLOR_PRINT_COMPLETE2[2] + (BACK_COLOR_PRINT_COMPLETE1[2]-BACK_COLOR_PRINT_COMPLETE2[2]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
+                    r = back_color2[0] + (back_color1[0]-back_color2[0]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
+                    g = back_color2[1] + (back_color1[1]-back_color2[1]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
+                    b = back_color2[2] + (back_color1[2]-back_color2[2]) * (now2-others_now_blink).total_seconds() / COMPLETE_BLINK
                 if r < 0: r = 0
                 if r > 255: r = 255
                 if g < 0: g = 0
@@ -582,6 +598,40 @@ class MoonrakerWS(threading.Thread):
         while True:
             self.ws.run_forever()
 
+class WebServerThread(threading.Thread):
+    def __init__(self):
+        super(WebServerThread, self).__init__()
+    
+    def run(self):
+        #asyncio.run(main())
+        webServer = HTTPServer((PRINTER_IP, WEBSERVER_PORT), WebServer)
+        webServer.serve_forever()
+
+class WebServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed_path = urlparse(self.path)
+        query_components = parse_qs(parsed_path.query)
+
+        if parsed_path.path.startswith('/command'):
+            response = 200
+            message = 'OK'
+            shutdown = str(query_components.get("shutdown",""))
+            print(shutdown)
+            if shutdown == "['true']":
+                currentParams.shutdown_requested = True
+                updateLedsParams.others_leds_status = SHUTDOWN_REQUESTED
+            elif shutdown == "['false']":
+                currentParams.shutdown_requested = False
+            else:
+                response = 400
+                message = 'OK'
+        else:
+            response = 404
+            message = 'command not found"'
+        
+        self.send_response(response)
+        self.wfile.write(bytes(message,"utf8"))
+
 #websocket.enableTrace(True)
 ws = websocket.WebSocketApp("ws://"+PRINTER_IP+":"+str(PRINTER_PORT)+"/websocket",
                             on_open=on_open,
@@ -591,6 +641,9 @@ ws = websocket.WebSocketApp("ws://"+PRINTER_IP+":"+str(PRINTER_PORT)+"/websocket
 moonrakerWS = MoonrakerWS(ws)
 moonrakerWS.start()
 
+webServerThread = WebServerThread()
+webServerThread.start()
+
 currentParams = CurrentParams()
-UpdateLedsParams = UpdateLedsParams(extruder_begin=EXTRUDER_BEGIN,extruder_end=EXTRUDER_END,extruder_direction=TO_LEFT,heater_begin=HEATER_BED_BEGIN,heater_end=HEATER_BED_END,heater_direction=TO_RIGHT)
+updateLedsParams = UpdateLedsParams(extruder_begin=EXTRUDER_BEGIN,extruder_end=EXTRUDER_END,extruder_direction=TO_LEFT,heater_begin=HEATER_BED_BEGIN,heater_end=HEATER_BED_END,heater_direction=TO_RIGHT)
 UpdateLeds()

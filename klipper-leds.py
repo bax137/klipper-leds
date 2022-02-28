@@ -615,12 +615,11 @@ class WebServer(BaseHTTPRequestHandler):
         if parsed_path.path.startswith('/command'):
             response = 200
             message = 'OK'
-            shutdown = str(query_components.get("shutdown",""))
-            print(shutdown)
-            if shutdown == "['true']":
+            shutdown = query_components.get("shutdown","")[0]
+            if shutdown == "true":
                 currentParams.shutdown_requested = True
                 updateLedsParams.others_leds_status = SHUTDOWN_REQUESTED
-            elif shutdown == "['false']":
+            elif shutdown == "false":
                 currentParams.shutdown_requested = False
             else:
                 response = 400
